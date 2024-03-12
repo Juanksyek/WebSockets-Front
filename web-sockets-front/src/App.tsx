@@ -67,6 +67,13 @@ function App() {
     if (message.type === "messages") {
       setMessages((message.value as { messages: Message[] }).messages);
     }
+
+    if (message.type === "messages") {
+      setMessages([
+        ...messages,
+        (message.value as { message: Message }).message,
+      ]);
+    }
   };
 
   const setTargetNickname = (nickname: string) => {
@@ -81,13 +88,23 @@ function App() {
     setTargetNicknameValue(nickname);
   };
 
+  const sendMessage = (message: string) => {
+    ws.send(
+      JSON.stringify({
+        action: "sendMessage",
+        recipientNickname: targetNicknameValue,
+        message,
+      })
+    );
+  };
+
   return (
     <div className="flex">
       <div className="flex-none w-16 md:w-40 border-r-2">
         <Sidebar clients={clients} setTargetNickname={setTargetNickname} />;
       </div>
       <div className="felx-auto">
-        <Conversation messages={messages}/>;
+        <Conversation messages={messages} sendMessage={sendMessage} />;
       </div>
     </div>
   );
