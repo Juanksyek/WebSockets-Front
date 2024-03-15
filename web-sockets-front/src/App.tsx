@@ -1,110 +1,130 @@
 import React, { useEffect, useRef, useState } from "react";
 import "./App.css";
-import WebSocketConnector from "./WebSocketConnector";
+import {WebSocketConnector} from "./WebSocketConnector";
+import { MessageItem } from "./MessageItem";
 import Welcome from "./Welcome";
 import Conversation from "./Conversation";
 import Sidebar from "./Sidebar";
 
-export type Client = {
-  connectionId: string;
-  nickname: string;
-};
-
-export type Message = {
-  messageId: string;
-  nicknameToNickname: string;
-  message: string;
-  sender: string;
-  createdAt: number;
-};
-
-const webSocketConnector = new WebSocketConnector();
+const WS_URL = "wss://eex5p2uf7d.execute-api.us-east-1.amazonaws.com/dev";
+const connector = new WebSocketConnector();
 
 function App() {
-  const [nickname, setNickname] = useState(
+  const [nickname, setNickname] = useState<string>(
     window.localStorage.getItem("nickname") || ""
   );
+  const [clients, setClients] = useState<string[]>([]);
+  const [target, setTarget] = useState<string>(
+    window.localStorage.getItem("lastTarget") || ""
+  );
+  const [messages, setMessages] = useState<MessageItem[]>([]);
+  const webSocket = useRef(connector);
 
-  const [clients, setClients] = useState<Client[]>([]);
-  const [targetNicknameValue, setTargetNicknameValue] = useState("");
-  const [messages, setMessages] = useState<Message[]>([]);
-
-  useEffect(() => {
-    window.localStorage.setItem("nickname", nickname);
-  });
-
-  const webSocketConnectorRef = useRef(webSocketConnector);
-
-  if (nickname === "") {
-    return <Welcome setNickname={setNickname} />;
-  }
-
-  const url = `wss://eex5p2uf7d.execute-api.us-east-1.amazonaws.com/dev?nickname=${nickname}`;
-
-  const ws = webSocketConnectorRef.current.getConnection(url);
-
-  ws.onopen = () => {
-    ws.send(
-      JSON.stringify({
-        action: "getClients",
-      })
-    );
-  };
-
-  ws.onmessage = (e) => {
-    const message = JSON.parse(e.data) as {
-      type: string;
-      value: unknown;
-    };
-
-    console.log(message);
-
-    if (message.type === "clients") {
-      setClients((message.value as { clients: Client[] }).clients);
-      console.log((message.value as { clients: Client[] }).clients);
-    }
-
-    if (message.type === "messages") {
-      setMessages((message.value as { messages: Message[] }).messages);
-    }
-
-    if (message.type === "messages") {
-      setMessages([
-        ...messages,
-        (message.value as { message: Message }).message,
-      ]);
-    }
-  };
-
-  const setTargetNickname = (nickname: string) => {
-    setTargetNicknameValue(nickname);
-    ws.send(
+  const loadMessages = (target: string) => {
+    webSocket.current.getConnection(url).send(
       JSON.stringify({
         action: "getMessages",
-        targetNicknameValue: nickname,
+        targetNickname: target,
         limit: 1000,
       })
     );
-    setTargetNicknameValue(nickname);
   };
 
-  const sendMessage = (message: string) => {
-    ws.send(
+  const setNewTarget = (target: string) => {
+    setTarget(target);
+    setMessages([]);
+    loadMessages(target);
+  };
+
+  useEffect(() => {
+    window.localStorage.setItem("nickname", nickname);
+    window.localStorage.setItem("lastTarget", target);
+  });
+
+  if (nickname === "") {
+    return (
+      <Welcome
+        setNickname={(nickname) => {
+          setNickname(nickname);
+          if (target === "") {
+            setTarget(nickname);
+          }
+        }}
+      />
+    );
+  }
+
+  const url = `${WS_URL}?nickname=${nickname}`;
+  const ws = webSocket.current.getConnection(url);
+
+  ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data) as {
+      type: string;
+      value: unknown;
+    };
+    console.log(msg);
+    if (msg.type === "clients") {
+      setClients(
+        (msg.value as { nickname: string }[]).map((c) => c.nickname).sort()
+      );
+    }
+
+    if (msg.type === "messages") {
+      const body = msg.value as {
+        messages: MessageItem[];
+        lastEvaluatedKey: unknown;
+      };
+
+      setMessages([...body.messages.reverse(), ...messages]);
+    }
+
+    if (msg.type === "message") {
+      const item = msg.value as MessageItem;
+      if (item.sender === nickname || item.sender !== target) {
+        return;
+      }
+      setMessages([...messages, item]);
+    }
+  };
+
+  ws.onopen = () => {
+    webSocket.current
+      .getConnection(url)
+      .send(JSON.stringify({ action: "getClients" }));
+
+    loadMessages(target);
+  };
+
+  const sendMessage = (value: string) => {
+    webSocket.current.getConnection(url).send(
       JSON.stringify({
         action: "sendMessage",
-        recipientNickname: targetNicknameValue,
-        message,
+        recipientNickname: target,
+        message: value,
       })
     );
+    setMessages([
+      ...messages,
+      {
+        message: value,
+        sender: nickname,
+      },
+    ]);
   };
 
   return (
     <div className="flex">
-      <div className="flex-none w-16 md:w-40 border-r-2">
-        <Sidebar clients={clients} setTargetNickname={setTargetNickname} />;
-      </div>
-      <div className="felx-auto">
-        <Conversation messages={messages} sendMessage={sendMessage} />;
+        <Sidebar
+          me={nickname}
+          clients={clients}
+          setTarget={(target) => setNewTarget(target)}
+        />
+      <div className="flex-auto">
+        <Conversation
+          target={target}
+          messages={messages}
+          sendMessage={sendMessage}
+        />
       </div>
     </div>
   );

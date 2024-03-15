@@ -1,10 +1,17 @@
-export default class WebSocketConnector{
-    private connection?: WebSocket
-
-    getConnection(url: string){
-        if (!this.connection) {
-            this.connection = new WebSocket(url);
+export class WebSocketConnector {
+    private connection?: WebSocket;
+    private url?: string;
+  
+    getConnection(url: string): WebSocket {
+      if (url !== this.url) {
+        if (this.connection) {
+          this.connection.close();
         }
-        return this.connection as WebSocket;
+  
+        this.url = url;
+        this.connection = new WebSocket(this.url);
+      }
+  
+      return this.connection as WebSocket;
     }
-}
+  }
